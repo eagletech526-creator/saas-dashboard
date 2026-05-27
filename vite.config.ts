@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import type {IncomingMessage, ServerResponse} from 'node:http';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
+import {createDashboardDataHandler} from './server/dashboard-data';
 
 type DashboardAiRequest = {
   message?: string;
@@ -84,13 +85,12 @@ function uniqueValues(values: Array<string | undefined>) {
   return values.filter((value, index, array): value is string => Boolean(value) && array.indexOf(value) === index);
 }
 
-function getChatCompletionUrls(baseUrl: string) {
-  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
-  const paths = cleanBaseUrl.endsWith('/api/v1') || cleanBaseUrl.endsWith('/v1')
-    ? ['/chat/completions']
-    : ['/api/v1/chat/completions', '/chat/completions', '/v1/chat/completions'];
-
-  return paths.map((pathName) => `${cleanBaseUrl}${pathName}`);
+function getGeminiText(data: {candidates?: Array<{content?: {parts?: Array<{text?: string}>}}>}) {
+  return data.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text)
+    .filter(Boolean)
+    .join('\n')
+    .trim();
 }
 
 function createDashboardAiHandler(env: Record<string, string>) {
@@ -109,7 +109,7 @@ function createDashboardAiHandler(env: Record<string, string>) {
         return;
       }
 
-      const apiKey = env.TOROUTER_API_KEY || env.DEEPSEEK_API_KEY;
+      const apiKey = env.GEMINI_API_KEY;
 
       if (!apiKey) {
         sendJson(response, 200, {
@@ -119,68 +119,67 @@ function createDashboardAiHandler(env: Record<string, string>) {
         return;
       }
 
-      const baseUrl =
-        env.TOROUTER_OPENAI_BASE_URL ||
-        env.DEEPSEEK_OPENAI_BASE_URL ||
-        'https://portal.torouter.ai';
       const modelCandidates = uniqueValues([
-        env.TOROUTER_MODEL,
-        env.DEEPSEEK_MODEL,
-        'deepseek-v4-flash',
-        'deepseek/deepseek-v4-flash',
-        'deepseek-chat',
+        env.GEMINI_MODEL,
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
       ]);
       const recentMessages = (body.messages || [])
         .filter((item) => item.role === 'user' || item.role === 'assistant')
         .slice(-8);
 
-      const messages = [
-        {
-          role: 'system',
-          content:
-            'You are ProjectHub AI, a fluent and practical project operations assistant. Be concise, warm, specific, and helpful. Use the supplied dashboard context as the source of truth. Mention concrete projects, tasks, due dates, workload, blockers, and next actions when relevant. Do not invent data that is not present.',
-        },
+      const contents = [
         {
           role: 'user',
-          content: `Dashboard context:\n${JSON.stringify(body.context, null, 2)}`,
+          parts: [{text: `Dashboard context:\n${JSON.stringify(body.context, null, 2)}`}],
         },
-        ...recentMessages,
-        {role: 'user', content: message},
+        ...recentMessages.map((item) => ({
+          role: item.role === 'assistant' ? 'model' : 'user',
+          parts: [{text: item.content}],
+        })),
+        {role: 'user', parts: [{text: message}]},
       ];
       let lastError = 'The hosted AI service could not complete the request.';
 
-      for (const url of getChatCompletionUrls(baseUrl)) {
-        for (const model of modelCandidates) {
-          const aiResponse = await fetch(url, {
+      for (const model of modelCandidates) {
+        const aiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
             method: 'POST',
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-              model,
-              temperature: 0.45,
-              max_tokens: 700,
-              messages,
+              systemInstruction: {
+                parts: [
+                  {
+                    text:
+                      'You are ProjectHub AI, a fluent and practical project operations assistant. Be concise, warm, specific, and helpful. Use the supplied dashboard context as the source of truth. Mention concrete projects, tasks, due dates, workload, blockers, and next actions when relevant. Do not invent data that is not present.',
+                  },
+                ],
+              },
+              contents,
+              generationConfig: {
+                temperature: 0.45,
+                maxOutputTokens: 700,
+              },
             }),
+          },
+        );
+
+        const data = await aiResponse.json().catch(() => ({}));
+        const reply = getGeminiText(data);
+
+        if (aiResponse.ok && reply) {
+          sendJson(response, 200, {
+            mode: 'hosted',
+            provider: 'gemini',
+            model,
+            reply,
           });
-
-          const data = await aiResponse.json().catch(() => ({}));
-
-          if (aiResponse.ok) {
-            sendJson(response, 200, {
-              mode: 'hosted',
-              provider: baseUrl.includes('torouter') ? 'torouter' : 'openai-compatible',
-              model,
-              reply:
-                data.choices?.[0]?.message?.content ||
-                'I received the request, but no response text came back.',
-            });
-            return;
-          }
-
-          lastError = data.error?.message || `The hosted AI service returned ${aiResponse.status}.`;
+          return;
         }
+
+        lastError = data.error?.message || `Gemini returned ${aiResponse.status}.`;
       }
 
       sendJson(response, 200, {
@@ -201,6 +200,7 @@ function createDashboardAiHandler(env: Record<string, string>) {
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   const dashboardAiHandler = createDashboardAiHandler(env);
+  const dashboardDataHandler = createDashboardDataHandler(env);
 
   return {
     plugins: [
@@ -208,17 +208,16 @@ export default defineConfig(({mode}) => {
         name: 'projecthub-dashboard-ai',
         configureServer(server) {
           server.middlewares.use('/api/ai/dashboard', dashboardAiHandler);
+          server.middlewares.use('/api/dashboard', dashboardDataHandler);
         },
         configurePreviewServer(server) {
           server.middlewares.use('/api/ai/dashboard', dashboardAiHandler);
+          server.middlewares.use('/api/dashboard', dashboardDataHandler);
         },
       },
       react(),
       tailwindcss(),
     ],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

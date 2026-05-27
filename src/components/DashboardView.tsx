@@ -1,5 +1,5 @@
 import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from "@clerk/clerk-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -33,6 +33,7 @@ import {
   LayoutDashboard,
   Linkedin,
   Loader2,
+  Mail,
   Menu,
   MessageSquare,
   MoreVertical,
@@ -45,6 +46,7 @@ import {
   Timer,
   Twitter,
   Upload,
+  UserPlus,
   Users,
   Users2,
   Zap,
@@ -73,6 +75,9 @@ type ViewKey =
 
 type ProjectStatus = "Planning" | "In Progress" | "On Hold" | "Completed";
 type TaskStatus = "To Do" | "In Progress" | "Completed";
+type InvoiceStatus = "Draft" | "Sent" | "Paid" | "Overdue";
+type TeamMemberStatus = "Active" | "Invited";
+type TeamMemberRole = "Admin" | "Manager" | "Member" | "Viewer";
 
 type Project = {
   id: string;
@@ -95,7 +100,28 @@ type Task = {
   hours: number;
 };
 
+type Invoice = {
+  id: string;
+  number: string;
+  client: string;
+  projectId: string;
+  status: InvoiceStatus;
+  amount: number;
+  issueDate: string;
+  dueDate: string;
+};
+
+type TeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: TeamMemberRole;
+  status: TeamMemberStatus;
+  joinedAt: string;
+};
+
 type DashboardUser = {
+  clerkId?: string;
   name: string;
   firstName: string;
   email: string;
@@ -136,7 +162,20 @@ const initialTasks: Task[] = [
   { id: "t6", title: "Finalize brand palette", projectId: "brand", status: "Completed", dueDate: "2026-05-29", assignee: "Olivia Rhye", hours: 5 },
 ];
 
-const teamMembers = ["Olivia Rhye", "Phoenix Baker", "Lana Steiner", "Demi Wilkinson", "Candice Wu"];
+const initialInvoices: Invoice[] = [
+  { id: "inv-1007", number: "INV-1007", client: "Acme Studio", projectId: "website", status: "Sent", amount: 4200, issueDate: "2026-05-18", dueDate: "2026-06-02" },
+  { id: "inv-1006", number: "INV-1006", client: "Northstar Apps", projectId: "mobile", status: "Draft", amount: 6800, issueDate: "2026-05-20", dueDate: "2026-06-07" },
+  { id: "inv-1005", number: "INV-1005", client: "Brightline Co.", projectId: "marketing", status: "Paid", amount: 2900, issueDate: "2026-05-05", dueDate: "2026-05-20" },
+  { id: "inv-1004", number: "INV-1004", client: "Orbit CRM", projectId: "crm", status: "Overdue", amount: 3500, issueDate: "2026-04-21", dueDate: "2026-05-12" },
+];
+
+const initialTeamMembers: TeamMember[] = [
+  { id: "olivia", name: "Olivia Rhye", email: "olivia@projecthub.com", role: "Admin", status: "Active", joinedAt: "2026-01-12" },
+  { id: "phoenix", name: "Phoenix Baker", email: "phoenix@projecthub.com", role: "Manager", status: "Active", joinedAt: "2026-02-04" },
+  { id: "lana", name: "Lana Steiner", email: "lana@projecthub.com", role: "Member", status: "Active", joinedAt: "2026-02-18" },
+  { id: "demi", name: "Demi Wilkinson", email: "demi@projecthub.com", role: "Member", status: "Active", joinedAt: "2026-03-03" },
+  { id: "candice", name: "Candice Wu", email: "candice@projecthub.com", role: "Viewer", status: "Active", joinedAt: "2026-03-20" },
+];
 
 const projectIcons = {
   zap: Zap,
@@ -190,6 +229,14 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(`${value}T00:00:00`));
 }
 
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 function daysUntil(value: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -202,6 +249,24 @@ function dueLabel(value: string) {
   if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`;
   if (days === 0) return "Due today";
   return `Due in ${days} day${days === 1 ? "" : "s"}`;
+}
+
+function createId() {
+  return crypto.randomUUID();
+}
+
+function getDashboardQuery(user: DashboardUser) {
+  const params = new URLSearchParams({
+    name: user.name,
+    firstName: user.firstName,
+    email: user.email || "guest@projecthub.local",
+    role: user.role,
+  });
+
+  if (user.clerkId) params.set("clerkId", user.clerkId);
+  if (user.imageUrl) params.set("imageUrl", user.imageUrl);
+
+  return params.toString();
 }
 
 function Logo({ compact = false }: { compact?: boolean }) {
@@ -414,6 +479,111 @@ function TaskForm({
   );
 }
 
+function InvoiceForm({
+  projects,
+  onCreate,
+}: {
+  projects: Project[];
+  onCreate: (invoice: Omit<Invoice, "id" | "number" | "status">) => void;
+}) {
+  const [client, setClient] = useState("");
+  const [projectId, setProjectId] = useState(projects[0]?.id || "");
+  const [amount, setAmount] = useState(2500);
+  const [issueDate, setIssueDate] = useState("2026-05-27");
+  const [dueDate, setDueDate] = useState("2026-06-10");
+
+  useEffect(() => {
+    if (!projectId && projects[0]) setProjectId(projects[0].id);
+  }, [projectId, projects]);
+
+  return (
+    <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+      <CardHeader>
+        <CardTitle className="text-base font-bold text-slate-950">New Invoice</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto_auto]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!client.trim() || !projectId || amount <= 0) return;
+            onCreate({ client, projectId, amount, issueDate, dueDate });
+            setClient("");
+            setAmount(2500);
+          }}
+        >
+          <Input value={client} onChange={(event) => setClient(event.target.value)} placeholder="Client name" className="h-10 border-slate-200 bg-white" />
+          <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>{project.name}</option>
+            ))}
+          </select>
+          <Input type="number" min={1} value={amount} onChange={(event) => setAmount(Number(event.target.value))} className="h-10 border-slate-200 bg-white" />
+          <Input type="date" value={issueDate} onChange={(event) => setIssueDate(event.target.value)} className="h-10 border-slate-200 bg-white" />
+          <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="h-10 border-slate-200 bg-white" />
+          <Button className="h-10 bg-sky-600 text-white hover:bg-sky-700 md:col-span-5">
+            <Plus className="h-4 w-4" />
+            Create Invoice
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TeamMemberForm({
+  onInvite,
+}: {
+  onInvite: (member: Pick<TeamMember, "email" | "role">) => boolean;
+}) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<TeamMemberRole>("Member");
+  const [message, setMessage] = useState("");
+
+  return (
+    <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+      <CardHeader>
+        <CardTitle className="text-base font-bold text-slate-950">Invite Team Member</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="grid gap-3 md:grid-cols-[1fr_auto_auto]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const normalizedEmail = email.trim().toLowerCase();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+              setMessage("Enter a valid email address.");
+              return;
+            }
+            const created = onInvite({ email: normalizedEmail, role });
+            setMessage(created ? "Invitation added to the workspace." : "That email is already on the team.");
+            if (created) {
+              setEmail("");
+              setRole("Member");
+            }
+          }}
+        >
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="teammate@company.com" className="h-10 border-slate-200 bg-white pl-10" />
+          </div>
+          <select value={role} onChange={(event) => setRole(event.target.value as TeamMemberRole)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+            <option>Admin</option>
+            <option>Manager</option>
+            <option>Member</option>
+            <option>Viewer</option>
+          </select>
+          <Button className="h-10 bg-sky-600 text-white hover:bg-sky-700">
+            <UserPlus className="h-4 w-4" />
+            Invite
+          </Button>
+        </form>
+        {message && <p className="mt-3 text-sm text-slate-600">{message}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function createLocalAiReply(message: string, user: DashboardUser, projects: Project[], tasks: Task[]) {
   const normalizedMessage = message.toLowerCase();
   const openTasks = tasks.filter((task) => task.status !== "Completed");
@@ -536,8 +706,8 @@ function DashboardAiAssistant({
       if (data.mode === "local") {
         setError(
           data.warning
-            ? `DeepSeek is unavailable: ${data.warning} Using local workspace mode.`
-            : "DeepSeek is unavailable, so ProjectHub AI is using local workspace mode.",
+            ? `Hosted AI is unavailable: ${data.warning} Using local workspace mode.`
+            : "Hosted AI is unavailable, so ProjectHub AI is using local workspace mode.",
         );
       }
 
@@ -664,29 +834,81 @@ function DashboardAiAssistant({
 }
 
 function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: DashboardUser }) {
-  const storageKey = `projecthub-dashboard-${user.email || user.name}`;
   const [activeView, setActiveView] = useState<ViewKey>("Dashboard");
   const [searchQuery, setSearchQuery] = useState("");
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showTaskForm, setShowTaskForm] = useState(false);
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [showTeamForm, setShowTeamForm] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
+  const [isSavingDashboard, setIsSavingDashboard] = useState(false);
+  const [dashboardError, setDashboardError] = useState("");
+  const hasLoadedDashboard = useRef(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem(storageKey);
-    if (!saved) return;
-    try {
-      const parsed = JSON.parse(saved) as { projects?: Project[]; tasks?: Task[] };
-      if (parsed.projects?.length) setProjects(parsed.projects);
-      if (parsed.tasks?.length) setTasks(parsed.tasks);
-    } catch {
-      localStorage.removeItem(storageKey);
-    }
-  }, [storageKey]);
+    const controller = new AbortController();
+
+    hasLoadedDashboard.current = false;
+    setIsLoadingDashboard(true);
+    setDashboardError("");
+
+    fetch(`/api/dashboard?${getDashboardQuery(user)}`, { signal: controller.signal })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Could not load dashboard data.");
+        setProjects(data.projects || []);
+        setTasks(data.tasks || []);
+        setInvoices(data.invoices || []);
+        setTeamMembers(data.teamMembers || []);
+        hasLoadedDashboard.current = true;
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setDashboardError(error instanceof Error ? error.message : "Could not load dashboard data.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingDashboard(false);
+      });
+
+    return () => controller.abort();
+  }, [user.clerkId, user.email, user.firstName, user.imageUrl, user.name, user.role]);
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify({ projects, tasks }));
-  }, [projects, tasks, storageKey]);
+    if (!hasLoadedDashboard.current) return;
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setIsSavingDashboard(true);
+      setDashboardError("");
+
+      fetch("/api/dashboard", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({ user, projects, tasks, invoices, teamMembers }),
+      })
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || "Could not save dashboard data.");
+        })
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setDashboardError(error instanceof Error ? error.message : "Could not save dashboard data.");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsSavingDashboard(false);
+        });
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [projects, tasks, invoices, teamMembers, user.clerkId, user.email, user.firstName, user.imageUrl, user.name, user.role]);
 
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const filteredProjects = useMemo(() => {
@@ -700,6 +922,13 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
       return `${task.title} ${task.status} ${task.assignee} ${project?.name || ""}`.toLowerCase().includes(query);
     });
   }, [tasks, projectById, searchQuery]);
+  const filteredInvoices = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return invoices.filter((invoice) => {
+      const project = projectById.get(invoice.projectId);
+      return `${invoice.number} ${invoice.client} ${invoice.status} ${project?.name || ""}`.toLowerCase().includes(query);
+    });
+  }, [invoices, projectById, searchQuery]);
 
   const completedTasks = tasks.filter((task) => task.status === "Completed").length;
   const totalHours = tasks.reduce((sum, task) => sum + task.hours, 0);
@@ -709,10 +938,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     { name: "To Do", value: tasks.filter((task) => task.status === "To Do").length, color: "#d6dbe4" },
   ];
   const workloadData = teamMembers.map((member) => ({
-    name: member,
-    completed: tasks.filter((task) => task.assignee === member && task.status === "Completed").reduce((sum, task) => sum + task.hours, 0),
-    progress: tasks.filter((task) => task.assignee === member && task.status === "In Progress").reduce((sum, task) => sum + task.hours, 0),
-    todo: tasks.filter((task) => task.assignee === member && task.status === "To Do").reduce((sum, task) => sum + task.hours, 0),
+    name: member.name,
+    completed: tasks.filter((task) => task.assignee === member.name && task.status === "Completed").reduce((sum, task) => sum + task.hours, 0),
+    progress: tasks.filter((task) => task.assignee === member.name && task.status === "In Progress").reduce((sum, task) => sum + task.hours, 0),
+    todo: tasks.filter((task) => task.assignee === member.name && task.status === "To Do").reduce((sum, task) => sum + task.hours, 0),
   }));
   const progressData = projects.slice(0, 5).map((project, index) => ({
     name: formatDate(project.dueDate),
@@ -724,7 +953,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   const stats = [
     { title: "Total Projects", value: String(projects.length), change: "+12%", note: "from last month" },
     { title: "Tasks Completed", value: String(completedTasks), change: "+18%", note: "from last month" },
-    { title: "Team Members", value: String(teamMembers.length), change: "+2", note: "new this month" },
+    { title: "Team Members", value: String(teamMembers.length), change: `+${teamMembers.filter((member) => member.status === "Invited").length}`, note: "pending invites" },
     { title: "Hours Tracked", value: `${totalHours}h`, change: "+8%", note: "from last month" },
   ];
 
@@ -735,7 +964,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     setProjects((current) => [
       {
         ...project,
-        id: `project-${Date.now()}`,
+        id: createId(),
         progress: project.status === "Completed" ? 100 : project.status === "In Progress" ? 45 : 10,
         color: colors[index],
         icon: icons[index],
@@ -747,7 +976,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   };
 
   const createTask = (task: Omit<Task, "id" | "status">) => {
-    setTasks((current) => [{ ...task, id: `task-${Date.now()}`, status: "To Do" }, ...current]);
+    setTasks((current) => [{ ...task, id: createId(), status: "To Do" }, ...current]);
     setShowTaskForm(false);
     setActiveView("Tasks");
   };
@@ -774,6 +1003,59 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           : project,
       ),
     );
+  };
+
+  const createInvoice = (invoice: Omit<Invoice, "id" | "number" | "status">) => {
+    const nextNumber = `INV-${1000 + invoices.length + 1}`;
+    setInvoices((current) => [
+      {
+        ...invoice,
+        id: createId(),
+        number: nextNumber,
+        status: "Draft",
+      },
+      ...current,
+    ]);
+    setShowInvoiceForm(false);
+    setActiveView("Invoices");
+  };
+
+  const updateInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
+    setInvoices((current) => current.map((invoice) => invoice.id === invoiceId ? { ...invoice, status } : invoice));
+  };
+
+  const inviteTeamMember = (member: Pick<TeamMember, "email" | "role">) => {
+    const normalizedEmail = member.email.toLowerCase();
+    const alreadyExists = teamMembers.some((teamMember) => teamMember.email.toLowerCase() === normalizedEmail);
+    if (alreadyExists) return false;
+
+    const emailName = normalizedEmail.split("@")[0] || "New teammate";
+    const displayName = emailName
+      .split(/[._-]/)
+      .filter(Boolean)
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join(" ") || normalizedEmail;
+
+    setTeamMembers((current) => [
+      {
+        id: createId(),
+        name: displayName,
+        email: normalizedEmail,
+        role: member.role,
+        status: "Invited",
+        joinedAt: new Date().toISOString().slice(0, 10),
+      },
+      ...current,
+    ]);
+    return true;
+  };
+
+  const updateTeamMemberRole = (memberId: string, role: TeamMemberRole) => {
+    setTeamMembers((current) => current.map((member) => member.id === memberId ? { ...member, role } : member));
+  };
+
+  const markTeamMemberActive = (memberId: string) => {
+    setTeamMembers((current) => current.map((member) => member.id === memberId ? { ...member, status: "Active" } : member));
   };
 
   const renderProjectRow = (project: Project) => {
@@ -825,6 +1107,171 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         </select>
         <span className={`text-xs ${tone}`}>{dueLabel(task.dueDate)}</span>
       </label>
+    );
+  };
+
+  const renderInvoiceRow = (invoice: Invoice) => {
+    const project = projectById.get(invoice.projectId);
+    const statusTone = {
+      Draft: "bg-slate-100 text-slate-600",
+      Sent: "bg-blue-50 text-blue-600",
+      Paid: "bg-emerald-50 text-emerald-600",
+      Overdue: "bg-red-50 text-red-600",
+    }[invoice.status];
+
+    return (
+      <div key={invoice.id} className="grid gap-4 py-4 md:grid-cols-[1fr_1.1fr_auto_auto_auto] md:items-center">
+        <div>
+          <p className="text-sm font-bold text-slate-950">{invoice.number}</p>
+          <p className="text-xs text-slate-500">Issued {formatDate(invoice.issueDate)}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-slate-950">{invoice.client}</p>
+          <p className="truncate text-xs text-slate-500">{project?.name || "No project"}</p>
+        </div>
+        <p className="text-sm font-bold text-slate-950">{formatMoney(invoice.amount)}</p>
+        <div>
+          <p className="text-xs font-semibold text-slate-500">Due {formatDate(invoice.dueDate)}</p>
+          <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${statusTone}`}>{invoice.status}</span>
+        </div>
+        <select value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)} className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs">
+          <option>Draft</option>
+          <option>Sent</option>
+          <option>Paid</option>
+          <option>Overdue</option>
+        </select>
+      </div>
+    );
+  };
+
+  const renderInvoices = () => {
+    const paidTotal = invoices.filter((invoice) => invoice.status === "Paid").reduce((sum, invoice) => sum + invoice.amount, 0);
+    const outstandingTotal = invoices.filter((invoice) => invoice.status === "Sent" || invoice.status === "Overdue").reduce((sum, invoice) => sum + invoice.amount, 0);
+    const draftTotal = invoices.filter((invoice) => invoice.status === "Draft").reduce((sum, invoice) => sum + invoice.amount, 0);
+    const overdueTotal = invoices.filter((invoice) => invoice.status === "Overdue").reduce((sum, invoice) => sum + invoice.amount, 0);
+    const invoiceStats = [
+      { label: "Paid", value: formatMoney(paidTotal), tone: "text-emerald-600" },
+      { label: "Outstanding", value: formatMoney(outstandingTotal), tone: "text-blue-600" },
+      { label: "Drafts", value: formatMoney(draftTotal), tone: "text-slate-700" },
+      { label: "Overdue", value: formatMoney(overdueTotal), tone: "text-red-500" },
+    ];
+
+    return (
+      <div className="space-y-4">
+        {showInvoiceForm && <InvoiceForm projects={projects} onCreate={createInvoice} />}
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {invoiceStats.map((stat) => (
+            <Card key={stat.label} className="rounded-lg border-slate-200 bg-white shadow-none">
+              <CardContent className="p-5">
+                <p className="text-sm text-slate-600">{stat.label}</p>
+                <p className={`mt-3 text-2xl font-bold ${stat.tone}`}>{stat.value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-slate-950">Invoices</CardTitle>
+              <p className="mt-1 text-sm text-slate-500">Create invoices, track balances, and update payment status.</p>
+            </div>
+            <Button onClick={() => setShowInvoiceForm((value) => !value)} className="bg-sky-600 text-white hover:bg-sky-700">
+              <Plus className="h-4 w-4" />
+              New Invoice
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {filteredInvoices.length ? (
+              <div className="divide-y divide-slate-100">{filteredInvoices.map(renderInvoiceRow)}</div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center">
+                <p className="font-bold text-slate-950">No invoices found</p>
+                <p className="mt-1 text-sm text-slate-500">Try a different search or create a new invoice.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  const renderTeam = () => {
+    const activeMembers = teamMembers.filter((member) => member.status === "Active").length;
+    const invitedMembers = teamMembers.filter((member) => member.status === "Invited").length;
+
+    return (
+      <div className="space-y-4">
+        {showTeamForm && <TeamMemberForm onInvite={inviteTeamMember} />}
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+            <CardContent className="p-5">
+              <p className="text-sm text-slate-600">Total Members</p>
+              <p className="mt-3 text-2xl font-bold text-slate-950">{teamMembers.length}</p>
+            </CardContent>
+          </Card>
+          <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+            <CardContent className="p-5">
+              <p className="text-sm text-slate-600">Active</p>
+              <p className="mt-3 text-2xl font-bold text-emerald-600">{activeMembers}</p>
+            </CardContent>
+          </Card>
+          <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+            <CardContent className="p-5">
+              <p className="text-sm text-slate-600">Invited</p>
+              <p className="mt-3 text-2xl font-bold text-blue-600">{invitedMembers}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-slate-950">Team</CardTitle>
+              <p className="mt-1 text-sm text-slate-500">Invite teammates by email and manage workspace roles.</p>
+            </div>
+            <Button onClick={() => setShowTeamForm((value) => !value)} className="bg-sky-600 text-white hover:bg-sky-700">
+              <UserPlus className="h-4 w-4" />
+              Add by Email
+            </Button>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            {teamMembers.map((member) => {
+              const assignedTasks = tasks.filter((task) => task.assignee === member.name).length;
+              return (
+                <div key={member.id} className="rounded-lg border border-slate-200 p-4">
+                  <div className="flex items-start gap-3">
+                    <Avatar><AvatarFallback>{getInitials(member.name)}</AvatarFallback></Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-bold text-slate-950">{member.name}</p>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${member.status === "Active" ? "bg-emerald-50 text-emerald-600" : "bg-blue-50 text-blue-600"}`}>{member.status}</span>
+                      </div>
+                      <p className="truncate text-sm text-slate-500">{member.email}</p>
+                      <p className="mt-2 text-sm text-slate-500">{assignedTasks} assigned tasks · Joined {formatDate(member.joinedAt)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <select value={member.role} onChange={(event) => updateTeamMemberRole(member.id, event.target.value as TeamMemberRole)} className="h-9 flex-1 rounded-md border border-slate-200 bg-white px-2 text-xs">
+                      <option>Admin</option>
+                      <option>Manager</option>
+                      <option>Member</option>
+                      <option>Viewer</option>
+                    </select>
+                    {member.status === "Invited" && (
+                      <Button onClick={() => markTeamMemberActive(member.id)} variant="outline" className="h-9 rounded-md border-slate-200 bg-white text-xs">
+                        Mark Active
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      </div>
     );
   };
 
@@ -1055,10 +1502,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           <CardHeader><CardTitle className="text-slate-950">Time Tracking</CardTitle></CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-3">
             {teamMembers.map((member) => {
-              const hours = tasks.filter((task) => task.assignee === member).reduce((sum, task) => sum + task.hours, 0);
+              const hours = tasks.filter((task) => task.assignee === member.name).reduce((sum, task) => sum + task.hours, 0);
               return (
-                <div key={member} className="rounded-lg border border-slate-200 p-5">
-                  <p className="text-sm text-slate-600">{member}</p>
+                <div key={member.id} className="rounded-lg border border-slate-200 p-5">
+                  <p className="text-sm text-slate-600">{member.name}</p>
                   <p className="mt-3 text-3xl font-bold text-slate-950">{hours}h</p>
                 </div>
               );
@@ -1068,26 +1515,9 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
       );
     }
     if (activeView === "Reports") return renderDashboard();
-    if (activeView === "Team") {
-      return (
-        <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-          <CardHeader><CardTitle className="text-slate-950">Team</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            {teamMembers.map((member) => (
-              <div key={member} className="flex items-center gap-3 rounded-lg border border-slate-200 p-4">
-                <Avatar><AvatarFallback>{getInitials(member)}</AvatarFallback></Avatar>
-                <div>
-                  <p className="font-bold text-slate-950">{member}</p>
-                  <p className="text-sm text-slate-500">{tasks.filter((task) => task.assignee === member).length} assigned tasks</p>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      );
-    }
+    if (activeView === "Team") return renderTeam();
     if (activeView === "Clients") return <EmptyState title="Clients" description="Client records will connect to projects and invoices in the next data-backed pass." />;
-    if (activeView === "Invoices") return <EmptyState title="Invoices" description="Invoice workflows are ready for the next layer of billing data and payment status." />;
+    if (activeView === "Invoices") return renderInvoices();
     if (activeView === "Files") return <EmptyState title="Files" description="Attach project documents, briefs, and assets once file storage is connected." />;
     if (activeView === "Settings") return <EmptyState title="Settings" description="Workspace preferences, notifications, and profile settings will live here." />;
     if (activeView === "Integrations") return <EmptyState title="Integrations" description="Connect tools such as Slack, GitHub, Google Drive, and calendar providers." />;
@@ -1160,17 +1590,41 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
                     ? `Welcome back, ${user.firstName}! Here's what's happening with your projects.`
                     : `Manage ${activeView.toLowerCase()} for ${user.firstName}'s workspace.`}
                 </p>
+                <p className={`mt-2 text-xs ${dashboardError ? "text-red-500" : "text-slate-500"}`}>
+                  {dashboardError || (isLoadingDashboard ? "Loading dashboard data from database..." : isSavingDashboard ? "Saving dashboard data..." : "Database connected")}
+                </p>
               </div>
               <div className="flex gap-3">
                 <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-4 text-sm">May 1 - Jun 30, 2026 <ChevronDown className="h-4 w-4" /></Button>
                 <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-4 text-sm"><Upload className="h-4 w-4" />Export</Button>
-                <Button onClick={() => activeView === "Tasks" ? setShowTaskForm(true) : setShowProjectForm(true)} className="h-10 bg-sky-600 text-white hover:bg-sky-700">
+                <Button
+                  onClick={() => {
+                    if (activeView === "Tasks") {
+                      setShowTaskForm(true);
+                    } else if (activeView === "Invoices") {
+                      setShowInvoiceForm(true);
+                    } else if (activeView === "Team") {
+                      setShowTeamForm(true);
+                    } else {
+                      setShowProjectForm(true);
+                    }
+                  }}
+                  className="h-10 bg-sky-600 text-white hover:bg-sky-700"
+                >
                   <Plus className="h-4 w-4" />New
                 </Button>
               </div>
             </div>
 
-            {renderActiveView()}
+            {isLoadingDashboard ? (
+              <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+                <CardContent className="flex min-h-72 items-center justify-center p-8 text-sm text-slate-600">
+                  Loading dashboard data from database...
+                </CardContent>
+              </Card>
+            ) : (
+              renderActiveView()
+            )}
           </div>
         </main>
       </div>
@@ -1199,6 +1653,7 @@ function ClerkDashboardContent() {
     <DashboardContent
       authEnabled
       user={{
+        clerkId: user.id,
         name: fullName,
         firstName,
         email,
