@@ -1566,8 +1566,8 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
                 </p>
               </div>
               <div className="flex gap-3">
-                <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-4 text-sm">May 1 - Jun 30, 2026 <ChevronDown className="h-4 w-4" /></Button>
-                <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-4 text-sm"><Upload className="h-4 w-4" />Export</Button>
+                <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-4 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950">May 1 - Jun 30, 2026 <ChevronDown className="h-4 w-4" /></Button>
+                <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-4 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950"><Upload className="h-4 w-4" />Export</Button>
                 <Button
                   onClick={() => {
                     if (activeView === "Tasks") {
