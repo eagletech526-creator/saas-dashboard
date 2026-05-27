@@ -145,38 +145,6 @@ const demoUser: DashboardUser = {
   role: "Admin",
 };
 
-const initialProjects: Project[] = [
-  { id: "website", name: "Website Redesign", client: "Homepage design", status: "In Progress", progress: 75, dueDate: "2026-06-02", color: "indigo", icon: "zap" },
-  { id: "mobile", name: "Mobile App Development", client: "Beta testing", status: "In Progress", progress: 60, dueDate: "2026-06-05", color: "blue", icon: "briefcase" },
-  { id: "marketing", name: "Marketing Campaign", client: "Launch campaign", status: "Planning", progress: 30, dueDate: "2026-06-10", color: "emerald", icon: "message" },
-  { id: "crm", name: "CRM Integration", client: "API integration", status: "On Hold", progress: 20, dueDate: "2026-06-15", color: "violet", icon: "clock" },
-  { id: "brand", name: "Brand Identity Design", client: "Creative system", status: "Completed", progress: 100, dueDate: "2026-05-30", color: "orange", icon: "inbox" },
-];
-
-const initialTasks: Task[] = [
-  { id: "t1", title: "Design homepage wireframe", projectId: "website", status: "In Progress", dueDate: "2026-06-02", assignee: "Olivia Rhye", hours: 6 },
-  { id: "t2", title: "Review user feedback", projectId: "mobile", status: "To Do", dueDate: "2026-06-03", assignee: "Phoenix Baker", hours: 4 },
-  { id: "t3", title: "Create marketing plan", projectId: "marketing", status: "To Do", dueDate: "2026-06-05", assignee: "Lana Steiner", hours: 5 },
-  { id: "t4", title: "Set up analytics tracking", projectId: "website", status: "Completed", dueDate: "2026-06-06", assignee: "Demi Wilkinson", hours: 3 },
-  { id: "t5", title: "Prepare client presentation", projectId: "crm", status: "To Do", dueDate: "2026-06-07", assignee: "Candice Wu", hours: 7 },
-  { id: "t6", title: "Finalize brand palette", projectId: "brand", status: "Completed", dueDate: "2026-05-29", assignee: "Olivia Rhye", hours: 5 },
-];
-
-const initialInvoices: Invoice[] = [
-  { id: "inv-1007", number: "INV-1007", client: "Acme Studio", projectId: "website", status: "Sent", amount: 4200, issueDate: "2026-05-18", dueDate: "2026-06-02" },
-  { id: "inv-1006", number: "INV-1006", client: "Northstar Apps", projectId: "mobile", status: "Draft", amount: 6800, issueDate: "2026-05-20", dueDate: "2026-06-07" },
-  { id: "inv-1005", number: "INV-1005", client: "Brightline Co.", projectId: "marketing", status: "Paid", amount: 2900, issueDate: "2026-05-05", dueDate: "2026-05-20" },
-  { id: "inv-1004", number: "INV-1004", client: "Orbit CRM", projectId: "crm", status: "Overdue", amount: 3500, issueDate: "2026-04-21", dueDate: "2026-05-12" },
-];
-
-const initialTeamMembers: TeamMember[] = [
-  { id: "olivia", name: "Olivia Rhye", email: "olivia@projecthub.com", role: "Admin", status: "Active", joinedAt: "2026-01-12" },
-  { id: "phoenix", name: "Phoenix Baker", email: "phoenix@projecthub.com", role: "Manager", status: "Active", joinedAt: "2026-02-04" },
-  { id: "lana", name: "Lana Steiner", email: "lana@projecthub.com", role: "Member", status: "Active", joinedAt: "2026-02-18" },
-  { id: "demi", name: "Demi Wilkinson", email: "demi@projecthub.com", role: "Member", status: "Active", joinedAt: "2026-03-03" },
-  { id: "candice", name: "Candice Wu", email: "candice@projecthub.com", role: "Viewer", status: "Active", joinedAt: "2026-03-20" },
-];
-
 const projectIcons = {
   zap: Zap,
   briefcase: Briefcase,
@@ -443,7 +411,9 @@ function TaskForm({
   const [hours, setHours] = useState(2);
 
   useEffect(() => {
-    if (!projectId && projects[0]) setProjectId(projects[0].id);
+    if (projectId && !projects.some((project) => project.id === projectId)) {
+      setProjectId("");
+    }
   }, [projectId, projects]);
 
   return (
@@ -456,19 +426,20 @@ function TaskForm({
           className="grid gap-3 md:grid-cols-[1.2fr_1fr_auto_auto]"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!title.trim() || !projectId) return;
-            onCreate({ title, projectId, dueDate, assignee: user.name, hours });
+            if (!title.trim()) return;
+            onCreate({ title: title.trim(), projectId, dueDate, assignee: user.name, hours });
             setTitle("");
           }}
         >
-          <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task title" className="h-10 border-slate-200 bg-white" />
-          <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+          <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task title" className="h-10 border-slate-200 bg-white text-field-foreground placeholder:text-field-placeholder" />
+          <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-field-foreground">
+            <option value="">No project</option>
             {projects.map((project) => (
               <option key={project.id} value={project.id}>{project.name}</option>
             ))}
           </select>
-          <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="h-10 border-slate-200 bg-white" />
-          <Input type="number" min={1} value={hours} onChange={(event) => setHours(Number(event.target.value))} className="h-10 border-slate-200 bg-white" />
+          <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="h-10 border-slate-200 bg-white text-field-foreground" />
+          <Input type="number" min={1} value={hours} onChange={(event) => setHours(Math.max(1, Number(event.target.value) || 1))} className="h-10 border-slate-200 bg-white text-field-foreground" />
           <Button className="h-10 bg-sky-600 text-white hover:bg-sky-700 md:col-span-4">
             <Plus className="h-4 w-4" />
             Create Task
@@ -1100,7 +1071,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           <span className={`block text-sm font-bold leading-5 ${task.status === "Completed" ? "text-slate-400 line-through" : "text-slate-950"}`}>{task.title}</span>
           <span className="text-xs text-slate-500">{project?.name || "No project"} · {task.assignee}</span>
         </span>
-        <select value={task.status} onChange={(event) => updateTaskStatus(task.id, event.target.value as TaskStatus)} className="hidden h-8 rounded-md border border-slate-200 bg-white px-2 text-xs md:block">
+        <select value={task.status} onChange={(event) => updateTaskStatus(task.id, event.target.value as TaskStatus)} className="hidden h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-field-foreground md:block">
           <option>To Do</option>
           <option>In Progress</option>
           <option>Completed</option>
