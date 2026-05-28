@@ -137,6 +137,38 @@ type AiMessage = {
   content: string;
 };
 
+type ToastMessage = {
+  id: string;
+  title: string;
+  description?: string;
+};
+
+type ClientRecord = {
+  id: string;
+  name: string;
+  contact: string;
+  projects: number;
+};
+
+type FileRecord = {
+  id: string;
+  name: string;
+  project: string;
+  uploadedAt: string;
+};
+
+type IntegrationRecord = {
+  id: string;
+  name: string;
+  status: "Connected" | "Available";
+};
+
+type ReportRecord = {
+  id: string;
+  name: string;
+  createdAt: string;
+};
+
 const demoUser: DashboardUser = {
   name: "Olivia Rhye",
   firstName: "Olivia",
@@ -218,6 +250,19 @@ function dueLabel(value: string) {
   if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`;
   if (days === 0) return "Due today";
   return `Due in ${days} day${days === 1 ? "" : "s"}`;
+}
+
+function ToastViewport({ toasts }: { toasts: ToastMessage[] }) {
+  return (
+    <div className="fixed right-4 top-4 z-[80] grid w-[min(92vw,360px)] gap-3">
+      {toasts.map((toast) => (
+        <div key={toast.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/70">
+          <p className="text-sm font-bold text-slate-950">{toast.title}</p>
+          {toast.description && <p className="mt-1 text-sm leading-5 text-slate-600">{toast.description}</p>}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function createId() {
@@ -586,11 +631,13 @@ function DashboardAiAssistant({
   projects,
   tasks,
   compact = false,
+  onToast,
 }: {
   user: DashboardUser;
   projects: Project[];
   tasks: Task[];
   compact?: boolean;
+  onToast?: (title: string, description?: string) => void;
 }) {
   const completedTasks = tasks.filter((task) => task.status === "Completed").length;
   const overdueTasks = tasks.filter((task) => daysUntil(task.dueDate) < 0 && task.status !== "Completed").length;
@@ -657,6 +704,7 @@ function DashboardAiAssistant({
     setInput("");
     setError("");
     setIsSending(true);
+    onToast?.("AI request sent", trimmed);
 
     try {
       const response = await fetch("/api/ai/dashboard", {
@@ -691,6 +739,7 @@ function DashboardAiAssistant({
           content: data.reply || "I am here, but I did not receive a usable reply.",
         },
       ]);
+      onToast?.("AI response ready", "ProjectHub AI added a reply.");
     } catch (caughtError) {
       const messageText =
         caughtError instanceof Error
@@ -705,6 +754,7 @@ function DashboardAiAssistant({
           content: createLocalAiReply(trimmed, user, projects, tasks),
         },
       ]);
+      onToast?.("AI fallback used", "A local workspace answer was generated.");
     } finally {
       setIsSending(false);
     }
@@ -813,6 +863,16 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
   const [showTeamForm, setShowTeamForm] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [dateRange, setDateRange] = useState("May 1 - Jun 30, 2026");
+  const [clients, setClients] = useState<ClientRecord[]>([]);
+  const [files, setFiles] = useState<FileRecord[]>([]);
+  const [integrations, setIntegrations] = useState<IntegrationRecord[]>([
+    { id: "slack", name: "Slack", status: "Available" },
+    { id: "github", name: "GitHub", status: "Available" },
+    { id: "drive", name: "Google Drive", status: "Available" },
+  ]);
+  const [reports, setReports] = useState<ReportRecord[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -821,6 +881,14 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   const [isSavingDashboard, setIsSavingDashboard] = useState(false);
   const [dashboardError, setDashboardError] = useState("");
   const hasLoadedDashboard = useRef(false);
+
+  const showToast = (title: string, description?: string) => {
+    const id = createId();
+    setToasts((current) => [...current, { id, title, description }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 3200);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -923,6 +991,19 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     marketing: Math.min(100, Math.max(5, project.progress + index * 2 - 35)),
   }));
   const upcomingDeadlines = [...projects].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 4);
+  const clientRows = useMemo(() => {
+    const derivedClients = Array.from(new Set([...projects.map((project) => project.client), ...invoices.map((invoice) => invoice.client)]))
+      .filter(Boolean)
+      .map((name) => ({
+        id: `derived-${name}`,
+        name,
+        contact: `${name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}@example.com`,
+        projects: projects.filter((project) => project.client === name).length,
+      }));
+
+    const customClientNames = new Set(clients.map((client) => client.name));
+    return [...clients, ...derivedClients.filter((client) => !customClientNames.has(client.name))];
+  }, [clients, invoices, projects]);
   const stats = [
     { title: "Total Projects", value: String(projects.length), change: "+12%", note: "from last month" },
     { title: "Tasks Completed", value: String(completedTasks), change: "+18%", note: "from last month" },
@@ -932,6 +1013,107 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   const selectView = (view: ViewKey) => {
     setActiveView(view);
     setIsMobileSidebarOpen(false);
+    showToast(`${view} opened`, `Workspace view changed to ${view}.`);
+  };
+
+  const getExportData = () => {
+    if (activeView === "Projects" || activeView === "Calendar") return { projects: filteredProjects };
+    if (activeView === "Tasks" || activeView === "Time Tracking") return { tasks: filteredTasks, workload: workloadData };
+    if (activeView === "Invoices" || activeView === "Billing") return { invoices: filteredInvoices };
+    if (activeView === "Team") return { teamMembers };
+    if (activeView === "Clients") return { clients: clientRows };
+    if (activeView === "Files") return { files };
+    if (activeView === "Integrations") return { integrations };
+    if (activeView === "Reports") return { reports, stats, projects, tasks, invoices };
+    return { stats, projects, tasks, invoices, teamMembers };
+  };
+
+  const exportCurrentView = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      view: activeView,
+      dateRange,
+      data: getExportData(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `projecthub-${activeView.toLowerCase().replace(/\s+/g, "-")}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    showToast("Export ready", `${activeView} data was downloaded.`);
+  };
+
+  const cycleDateRange = () => {
+    const ranges = ["May 1 - Jun 30, 2026", "Jun 1 - Jun 30, 2026", "Q2 2026", "Year to date 2026"];
+    const nextRange = ranges[(ranges.indexOf(dateRange) + 1) % ranges.length];
+    setDateRange(nextRange);
+    showToast("Date range updated", nextRange);
+  };
+
+  const createClient = () => {
+    const index = clients.length + 1;
+    setClients((current) => [
+      { id: createId(), name: `New Client ${index}`, contact: `client${index}@example.com`, projects: 0 },
+      ...current,
+    ]);
+    showToast("Client created", `New Client ${index} was added.`);
+  };
+
+  const createFile = () => {
+    const projectName = projects[0]?.name || "Workspace";
+    const index = files.length + 1;
+    setFiles((current) => [
+      { id: createId(), name: `Project brief ${index}.pdf`, project: projectName, uploadedAt: new Date().toISOString().slice(0, 10) },
+      ...current,
+    ]);
+    showToast("File attached", `Project brief ${index}.pdf was added to ${projectName}.`);
+  };
+
+  const createReport = () => {
+    const report = { id: createId(), name: `${activeView} snapshot`, createdAt: new Date().toISOString().slice(0, 10) };
+    setReports((current) => [report, ...current]);
+    showToast("Report created", `${report.name} is ready.`);
+  };
+
+  const connectIntegration = (integrationId: string) => {
+    setIntegrations((current) =>
+      current.map((integration) =>
+        integration.id === integrationId ? { ...integration, status: "Connected" } : integration,
+      ),
+    );
+    const integration = integrations.find((item) => item.id === integrationId);
+    showToast("Integration connected", `${integration?.name || "Integration"} is now connected.`);
+  };
+
+  const handleNewAction = () => {
+    if (activeView === "Tasks") {
+      setShowTaskForm(true);
+      showToast("New task", "Task form opened.");
+    } else if (activeView === "Invoices" || activeView === "Billing") {
+      setShowInvoiceForm(true);
+      setActiveView("Invoices");
+      showToast("New invoice", "Invoice form opened.");
+    } else if (activeView === "Team") {
+      setShowTeamForm(true);
+      showToast("Invite teammate", "Team invite form opened.");
+    } else if (activeView === "Clients") {
+      createClient();
+    } else if (activeView === "Files") {
+      createFile();
+    } else if (activeView === "Integrations") {
+      connectIntegration(integrations.find((integration) => integration.status === "Available")?.id || integrations[0]?.id || "");
+    } else if (activeView === "Reports") {
+      createReport();
+    } else if (activeView === "Time Tracking") {
+      setShowTaskForm(true);
+      showToast("New time entry", "Create a task with tracked hours.");
+    } else {
+      setShowProjectForm(true);
+      if (activeView !== "Projects") setActiveView("Projects");
+      showToast("New project", "Project form opened.");
+    }
   };
 
   const createProject = (project: Omit<Project, "id" | "progress" | "color" | "icon">) => {
@@ -950,15 +1132,18 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     ]);
     setShowProjectForm(false);
     setActiveView("Projects");
+    showToast("Project created", `${project.name} was added to Projects.`);
   };
 
   const createTask = (task: Omit<Task, "id" | "status">) => {
     setTasks((current) => [{ ...task, id: createId(), status: "To Do" }, ...current]);
     setShowTaskForm(false);
     setActiveView("Tasks");
+    showToast("Task created", `${task.title} was added to Tasks.`);
   };
 
   const toggleTask = (taskId: string) => {
+    const selectedTask = tasks.find((task) => task.id === taskId);
     setTasks((current) =>
       current.map((task) =>
         task.id === taskId
@@ -966,10 +1151,12 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           : task,
       ),
     );
+    if (selectedTask) showToast("Task updated", `${selectedTask.title} was ${selectedTask.status === "Completed" ? "reopened" : "completed"}.`);
   };
 
   const updateTaskStatus = (taskId: string, status: TaskStatus) => {
     setTasks((current) => current.map((task) => task.id === taskId ? { ...task, status } : task));
+    showToast("Task status updated", `Task moved to ${status}.`);
   };
 
   const updateProjectStatus = (projectId: string, status: ProjectStatus) => {
@@ -980,6 +1167,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           : project,
       ),
     );
+    showToast("Project status updated", `Project moved to ${status}.`);
   };
 
   const createInvoice = (invoice: Omit<Invoice, "id" | "number" | "status">) => {
@@ -995,10 +1183,12 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     ]);
     setShowInvoiceForm(false);
     setActiveView("Invoices");
+    showToast("Invoice created", `${nextNumber} was created for ${invoice.client}.`);
   };
 
   const updateInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
     setInvoices((current) => current.map((invoice) => invoice.id === invoiceId ? { ...invoice, status } : invoice));
+    showToast("Invoice updated", `Invoice marked ${status}.`);
   };
 
   const inviteTeamMember = (member: Pick<TeamMember, "email" | "role">) => {
@@ -1024,15 +1214,18 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
       },
       ...current,
     ]);
+    showToast("Invitation sent", `${normalizedEmail} was invited as ${member.role}.`);
     return true;
   };
 
   const updateTeamMemberRole = (memberId: string, role: TeamMemberRole) => {
     setTeamMembers((current) => current.map((member) => member.id === memberId ? { ...member, role } : member));
+    showToast("Role updated", `Team member role changed to ${role}.`);
   };
 
   const markTeamMemberActive = (memberId: string) => {
     setTeamMembers((current) => current.map((member) => member.id === memberId ? { ...member, status: "Active" } : member));
+    showToast("Member activated", "The invitation is now marked active.");
   };
 
   const renderProjectRow = (project: Project) => {
@@ -1059,7 +1252,12 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           </div>
           <span className="w-8 text-xs text-slate-500">{project.progress}%</span>
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md text-slate-500">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-md text-slate-500"
+          onClick={() => showToast("Project actions", `${project.name} is selected for review.`)}
+        >
           <MoreVertical className="h-4 w-4" />
         </Button>
       </div>
@@ -1154,7 +1352,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
               <CardTitle className="text-slate-950">Invoices</CardTitle>
               <p className="mt-1 text-sm text-slate-500">Create invoices, track balances, and update payment status.</p>
             </div>
-            <Button onClick={() => setShowInvoiceForm((value) => !value)} className="bg-sky-600 text-white hover:bg-sky-700">
+            <Button onClick={() => {
+              setShowInvoiceForm((value) => !value);
+              showToast("Invoice form toggled", "Invoice creation controls are ready.");
+            }} className="bg-sky-600 text-white hover:bg-sky-700">
               <Plus className="h-4 w-4" />
               New Invoice
             </Button>
@@ -1209,7 +1410,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
               <CardTitle className="text-slate-950">Team</CardTitle>
               <p className="mt-1 text-sm text-slate-500">Invite teammates by email and manage workspace roles.</p>
             </div>
-            <Button onClick={() => setShowTeamForm((value) => !value)} className="bg-sky-600 text-white hover:bg-sky-700">
+            <Button onClick={() => {
+              setShowTeamForm((value) => !value);
+              showToast("Team invite toggled", "Invite controls are ready.");
+            }} className="bg-sky-600 text-white hover:bg-sky-700">
               <UserPlus className="h-4 w-4" />
               Add by Email
             </Button>
@@ -1252,6 +1456,170 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     );
   };
 
+  const renderReports = () => (
+    <div className="space-y-4">
+      <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+        <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <CardTitle className="text-slate-950">Reports</CardTitle>
+            <p className="mt-1 text-sm text-slate-500">Generate snapshots and export operational data.</p>
+          </div>
+          <Button onClick={createReport} className="bg-sky-600 text-white hover:bg-sky-700">
+            <FileText className="h-4 w-4" />
+            Generate Report
+          </Button>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          {stats.map((stat) => (
+            <div key={stat.title} className="rounded-lg border border-slate-200 p-5">
+              <p className="text-sm text-slate-600">{stat.title}</p>
+              <p className="mt-3 text-2xl font-bold text-slate-950">{stat.value}</p>
+            </div>
+          ))}
+          {reports.map((report) => (
+            <div key={report.id} className="rounded-lg border border-slate-200 p-5">
+              <p className="text-sm font-bold text-slate-950">{report.name}</p>
+              <p className="mt-1 text-xs text-slate-500">Created {formatDate(report.createdAt)}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      {renderDashboard()}
+    </div>
+  );
+
+  const renderClients = () => (
+    <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+      <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <CardTitle className="text-slate-950">Clients</CardTitle>
+          <p className="mt-1 text-sm text-slate-500">Track client contacts and linked project work.</p>
+        </div>
+        <Button onClick={createClient} className="bg-sky-600 text-white hover:bg-sky-700">
+          <Plus className="h-4 w-4" />
+          Add Client
+        </Button>
+      </CardHeader>
+      <CardContent className="grid gap-4 md:grid-cols-2">
+        {clientRows.map((client) => (
+          <div key={client.id} className="rounded-lg border border-slate-200 p-5">
+            <p className="font-bold text-slate-950">{client.name}</p>
+            <p className="mt-1 text-sm text-slate-500">{client.contact}</p>
+            <p className="mt-4 text-sm font-semibold text-sky-600">{client.projects} linked projects</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+
+  const renderFiles = () => (
+    <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+      <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <CardTitle className="text-slate-950">Files</CardTitle>
+          <p className="mt-1 text-sm text-slate-500">Attach workspace documents to projects.</p>
+        </div>
+        <Button onClick={createFile} className="bg-sky-600 text-white hover:bg-sky-700">
+          <Upload className="h-4 w-4" />
+          Attach File
+        </Button>
+      </CardHeader>
+      <CardContent className="grid gap-4 md:grid-cols-2">
+        {files.length ? files.map((file) => (
+          <div key={file.id} className="rounded-lg border border-slate-200 p-5">
+            <p className="font-bold text-slate-950">{file.name}</p>
+            <p className="mt-1 text-sm text-slate-500">{file.project} · {formatDate(file.uploadedAt)}</p>
+          </div>
+        )) : (
+          <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center md:col-span-2">
+            <p className="font-bold text-slate-950">No files attached yet</p>
+            <p className="mt-1 text-sm text-slate-500">Use Attach File or the New button to create one.</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  const renderSettings = () => (
+    <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+      <CardHeader>
+        <CardTitle className="text-slate-950">Settings</CardTitle>
+        <p className="mt-1 text-sm text-slate-500">Manage workspace preferences and notifications.</p>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-3">
+        {["Email notifications", "Weekly digest", "Compact dashboard"].map((setting) => (
+          <Button key={setting} onClick={() => showToast("Setting saved", `${setting} preference was updated.`)} variant="outline" className="h-11 justify-start rounded-md border-slate-200 bg-white">
+            <Settings className="h-4 w-4" />
+            {setting}
+          </Button>
+        ))}
+      </CardContent>
+    </Card>
+  );
+
+  const renderIntegrations = () => (
+    <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+      <CardHeader>
+        <CardTitle className="text-slate-950">Integrations</CardTitle>
+        <p className="mt-1 text-sm text-slate-500">Connect the tools your team uses every day.</p>
+      </CardHeader>
+      <CardContent className="grid gap-4 md:grid-cols-3">
+        {integrations.map((integration) => (
+          <div key={integration.id} className="rounded-lg border border-slate-200 p-5">
+            <p className="font-bold text-slate-950">{integration.name}</p>
+            <p className="mt-1 text-sm text-slate-500">{integration.status}</p>
+            <Button
+              onClick={() => connectIntegration(integration.id)}
+              disabled={integration.status === "Connected"}
+              className="mt-4 h-9 w-full rounded-md bg-sky-600 text-white hover:bg-sky-700"
+            >
+              {integration.status === "Connected" ? "Connected" : "Connect"}
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+
+  const renderBilling = () => (
+    <div className="space-y-4">
+      {showInvoiceForm && <InvoiceForm projects={projects} onCreate={createInvoice} />}
+      <Card className="rounded-lg border-slate-200 bg-white shadow-none">
+        <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <CardTitle className="text-slate-950">Billing</CardTitle>
+            <p className="mt-1 text-sm text-slate-500">Manage plan, seats, and invoice records.</p>
+          </div>
+          <Button onClick={() => {
+            setShowInvoiceForm((value) => !value);
+            showToast("Invoice form toggled", "Billing invoice controls are ready.");
+          }} className="bg-sky-600 text-white hover:bg-sky-700">
+            <Plus className="h-4 w-4" />
+            New Invoice
+          </Button>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 p-5">
+            <p className="text-sm text-slate-600">Current Plan</p>
+            <p className="mt-3 text-2xl font-bold text-slate-950">Pro</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-5">
+            <p className="text-sm text-slate-600">Seats</p>
+            <p className="mt-3 text-2xl font-bold text-slate-950">{teamMembers.length}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-5">
+            <p className="text-sm text-slate-600">Paid invoices</p>
+            <p className="mt-3 text-2xl font-bold text-emerald-600">{invoices.filter((invoice) => invoice.status === "Paid").length}</p>
+          </div>
+          <Button onClick={() => showToast("Plan updated", "Your Pro plan is active.")} variant="outline" className="h-11 justify-start rounded-md border-slate-200 bg-white md:col-span-3">
+            <CreditCard className="h-4 w-4" />
+            Manage subscription
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   const renderDashboard = () => (
     <>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1272,8 +1640,8 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         <Card className="rounded-lg border-slate-200 bg-white shadow-none">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-3">
             <CardTitle className="text-base font-bold text-slate-950">Project Progress</CardTitle>
-            <Button variant="outline" size="sm" className="h-8 rounded-md border-slate-200 bg-white text-xs">
-              This Month <ChevronDown className="h-3 w-3" />
+            <Button onClick={cycleDateRange} variant="outline" size="sm" className="h-8 rounded-md border-slate-200 bg-white text-xs">
+              {dateRange.includes("Jun 1") ? "This Month" : "Period"} <ChevronDown className="h-3 w-3" />
             </Button>
           </CardHeader>
           <CardContent className="px-6 pb-6">
@@ -1409,7 +1777,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
       </div>
 
       <div className="mt-4">
-        <DashboardAiAssistant user={user} projects={projects} tasks={tasks} compact />
+      <DashboardAiAssistant user={user} projects={projects} tasks={tasks} compact onToast={showToast} />
       </div>
     </>
   );
@@ -1417,7 +1785,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   const renderActiveView = () => {
     if (activeView === "Dashboard") return renderDashboard();
     if (activeView === "AI Assistant") {
-      return <DashboardAiAssistant user={user} projects={projects} tasks={tasks} />;
+      return <DashboardAiAssistant user={user} projects={projects} tasks={tasks} onToast={showToast} />;
     }
     if (activeView === "Projects") {
       return (
@@ -1426,7 +1794,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           <Card className="rounded-lg border-slate-200 bg-white shadow-none">
             <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <CardTitle className="text-slate-950">Projects</CardTitle>
-              <Button onClick={() => setShowProjectForm((value) => !value)} className="bg-sky-600 text-white hover:bg-sky-700">
+              <Button onClick={() => {
+                setShowProjectForm((value) => !value);
+                showToast("Project form toggled", "Project creation controls are ready.");
+              }} className="bg-sky-600 text-white hover:bg-sky-700">
                 <Plus className="h-4 w-4" />
                 New Project
               </Button>
@@ -1445,7 +1816,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           <Card className="rounded-lg border-slate-200 bg-white shadow-none">
             <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <CardTitle className="text-slate-950">Tasks</CardTitle>
-              <Button onClick={() => setShowTaskForm((value) => !value)} className="bg-sky-600 text-white hover:bg-sky-700">
+              <Button onClick={() => {
+                setShowTaskForm((value) => !value);
+                showToast("Task form toggled", "Task creation controls are ready.");
+              }} className="bg-sky-600 text-white hover:bg-sky-700">
                 <Plus className="h-4 w-4" />
                 New Task
               </Button>
@@ -1491,18 +1865,19 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         </Card>
       );
     }
-    if (activeView === "Reports") return renderDashboard();
+    if (activeView === "Reports") return renderReports();
     if (activeView === "Team") return renderTeam();
-    if (activeView === "Clients") return <EmptyState title="Clients" description="Client records will connect to projects and invoices in the next data-backed pass." />;
+    if (activeView === "Clients") return renderClients();
     if (activeView === "Invoices") return renderInvoices();
-    if (activeView === "Files") return <EmptyState title="Files" description="Attach project documents, briefs, and assets once file storage is connected." />;
-    if (activeView === "Settings") return <EmptyState title="Settings" description="Workspace preferences, notifications, and profile settings will live here." />;
-    if (activeView === "Integrations") return <EmptyState title="Integrations" description="Connect tools such as Slack, GitHub, Google Drive, and calendar providers." />;
-    return <EmptyState title="Billing" description="Manage plans, seats, and receipts once billing is enabled." />;
+    if (activeView === "Files") return renderFiles();
+    if (activeView === "Settings") return renderSettings();
+    if (activeView === "Integrations") return renderIntegrations();
+    return renderBilling();
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
+      <ToastViewport toasts={toasts} />
       <div className="flex min-h-screen">
         {isMobileSidebarOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
@@ -1602,8 +1977,8 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
-              <Button variant="ghost" size="icon" className="rounded-md text-slate-600"><Bell className="h-5 w-5" /></Button>
-              <Button variant="ghost" size="icon" className="rounded-md text-slate-600"><MessageSquare className="h-5 w-5" /></Button>
+              <Button onClick={() => showToast("Notifications checked", "No urgent alerts right now.")} variant="ghost" size="icon" className="rounded-md text-slate-600"><Bell className="h-5 w-5" /></Button>
+              <Button onClick={() => showToast("Messages opened", "Team messages are synced with this workspace.")} variant="ghost" size="icon" className="rounded-md text-slate-600"><MessageSquare className="h-5 w-5" /></Button>
               <div className="flex items-center gap-3 border-l border-slate-200 pl-2 sm:pl-4">
                 <UserAccountControl authEnabled={authEnabled} user={user} size="sm" />
                 <div className="hidden text-sm sm:block">
@@ -1632,20 +2007,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
                 </p>
               </div>
               <div className="flex flex-wrap gap-3">
-                <Button variant="outline" className="h-10 flex-1 rounded-md border-slate-200 bg-white px-3 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950 sm:flex-none sm:px-4">May 1 - Jun 30, 2026 <ChevronDown className="h-4 w-4" /></Button>
-                <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-3 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950 sm:px-4"><Upload className="h-4 w-4" />Export</Button>
+                <Button onClick={cycleDateRange} variant="outline" className="h-10 flex-1 rounded-md border-slate-200 bg-white px-3 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950 sm:flex-none sm:px-4">{dateRange} <ChevronDown className="h-4 w-4" /></Button>
+                <Button onClick={exportCurrentView} variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-3 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950 sm:px-4"><Upload className="h-4 w-4" />Export</Button>
                 <Button
-                  onClick={() => {
-                    if (activeView === "Tasks") {
-                      setShowTaskForm(true);
-                    } else if (activeView === "Invoices") {
-                      setShowInvoiceForm(true);
-                    } else if (activeView === "Team") {
-                      setShowTeamForm(true);
-                    } else {
-                      setShowProjectForm(true);
-                    }
-                  }}
+                  onClick={handleNewAction}
                   className="h-10 bg-sky-600 text-white hover:bg-sky-700"
                 >
                   <Plus className="h-4 w-4" />New
