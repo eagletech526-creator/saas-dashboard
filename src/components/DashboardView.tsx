@@ -704,7 +704,6 @@ function DashboardAiAssistant({
     setInput("");
     setError("");
     setIsSending(true);
-    onToast?.("AI request sent", trimmed);
 
     try {
       const response = await fetch("/api/ai/dashboard", {
@@ -873,6 +872,12 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     { id: "drive", name: "Google Drive", status: "Available" },
   ]);
   const [reports, setReports] = useState<ReportRecord[]>([]);
+  const [preferences, setPreferences] = useState<Record<string, boolean>>({
+    "Email notifications": true,
+    "Weekly digest": true,
+    "Compact dashboard": false,
+  });
+  const [planName, setPlanName] = useState("Pro");
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -881,6 +886,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   const [isSavingDashboard, setIsSavingDashboard] = useState(false);
   const [dashboardError, setDashboardError] = useState("");
   const hasLoadedDashboard = useRef(false);
+  const skipNextSaveToast = useRef(false);
 
   const showToast = (title: string, description?: string) => {
     const id = createId();
@@ -905,6 +911,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         setTasks(data.tasks || []);
         setInvoices(data.invoices || []);
         setTeamMembers(data.teamMembers || []);
+        skipNextSaveToast.current = true;
         hasLoadedDashboard.current = true;
       })
       .catch((error) => {
@@ -935,10 +942,17 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         .then(async (response) => {
           const data = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(data.error || "Could not save dashboard data.");
+          if (skipNextSaveToast.current) {
+            skipNextSaveToast.current = false;
+            return;
+          }
+          showToast("Saved to database", "Workspace changes were persisted.");
         })
         .catch((error) => {
           if (error instanceof DOMException && error.name === "AbortError") return;
-          setDashboardError(error instanceof Error ? error.message : "Could not save dashboard data.");
+          const message = error instanceof Error ? error.message : "Could not save dashboard data.";
+          setDashboardError(message);
+          showToast("Save failed", message);
         })
         .finally(() => {
           if (!controller.signal.aborted) setIsSavingDashboard(false);
@@ -1013,7 +1027,6 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   const selectView = (view: ViewKey) => {
     setActiveView(view);
     setIsMobileSidebarOpen(false);
-    showToast(`${view} opened`, `Workspace view changed to ${view}.`);
   };
 
   const getExportData = () => {
@@ -1078,6 +1091,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   };
 
   const connectIntegration = (integrationId: string) => {
+    if (!integrationId) return;
     setIntegrations((current) =>
       current.map((integration) =>
         integration.id === integrationId ? { ...integration, status: "Connected" } : integration,
@@ -1087,17 +1101,26 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     showToast("Integration connected", `${integration?.name || "Integration"} is now connected.`);
   };
 
+  const updatePreference = (setting: string) => {
+    const nextValue = !preferences[setting];
+    setPreferences((current) => ({ ...current, [setting]: nextValue }));
+    showToast("Setting saved", `${setting} was turned ${nextValue ? "on" : "off"}.`);
+  };
+
+  const updatePlan = () => {
+    const nextPlan = planName === "Pro" ? "Business" : "Pro";
+    setPlanName(nextPlan);
+    showToast("Plan updated", `Current plan changed to ${nextPlan}.`);
+  };
+
   const handleNewAction = () => {
     if (activeView === "Tasks") {
       setShowTaskForm(true);
-      showToast("New task", "Task form opened.");
     } else if (activeView === "Invoices" || activeView === "Billing") {
       setShowInvoiceForm(true);
       setActiveView("Invoices");
-      showToast("New invoice", "Invoice form opened.");
     } else if (activeView === "Team") {
       setShowTeamForm(true);
-      showToast("Invite teammate", "Team invite form opened.");
     } else if (activeView === "Clients") {
       createClient();
     } else if (activeView === "Files") {
@@ -1108,11 +1131,9 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
       createReport();
     } else if (activeView === "Time Tracking") {
       setShowTaskForm(true);
-      showToast("New time entry", "Create a task with tracked hours.");
     } else {
       setShowProjectForm(true);
       if (activeView !== "Projects") setActiveView("Projects");
-      showToast("New project", "Project form opened.");
     }
   };
 
@@ -1256,7 +1277,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           variant="ghost"
           size="icon"
           className="h-8 w-8 rounded-md text-slate-500"
-          onClick={() => showToast("Project actions", `${project.name} is selected for review.`)}
+          onClick={() => {
+            setShowProjectForm(true);
+            setActiveView("Projects");
+          }}
         >
           <MoreVertical className="h-4 w-4" />
         </Button>
@@ -1354,7 +1378,6 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
             </div>
             <Button onClick={() => {
               setShowInvoiceForm((value) => !value);
-              showToast("Invoice form toggled", "Invoice creation controls are ready.");
             }} className="bg-sky-600 text-white hover:bg-sky-700">
               <Plus className="h-4 w-4" />
               New Invoice
@@ -1412,7 +1435,6 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
             </div>
             <Button onClick={() => {
               setShowTeamForm((value) => !value);
-              showToast("Team invite toggled", "Invite controls are ready.");
             }} className="bg-sky-600 text-white hover:bg-sky-700">
               <UserPlus className="h-4 w-4" />
               Add by Email
@@ -1547,10 +1569,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         <p className="mt-1 text-sm text-slate-500">Manage workspace preferences and notifications.</p>
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-3">
-        {["Email notifications", "Weekly digest", "Compact dashboard"].map((setting) => (
-          <Button key={setting} onClick={() => showToast("Setting saved", `${setting} preference was updated.`)} variant="outline" className="h-11 justify-start rounded-md border-slate-200 bg-white">
+        {Object.keys(preferences).map((setting) => (
+          <Button key={setting} onClick={() => updatePreference(setting)} variant="outline" className="h-11 justify-start rounded-md border-slate-200 bg-white">
             <Settings className="h-4 w-4" />
-            {setting}
+            {setting}: {preferences[setting] ? "On" : "Off"}
           </Button>
         ))}
       </CardContent>
@@ -1592,7 +1614,6 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
           </div>
           <Button onClick={() => {
             setShowInvoiceForm((value) => !value);
-            showToast("Invoice form toggled", "Billing invoice controls are ready.");
           }} className="bg-sky-600 text-white hover:bg-sky-700">
             <Plus className="h-4 w-4" />
             New Invoice
@@ -1601,7 +1622,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         <CardContent className="grid gap-4 md:grid-cols-3">
           <div className="rounded-lg border border-slate-200 p-5">
             <p className="text-sm text-slate-600">Current Plan</p>
-            <p className="mt-3 text-2xl font-bold text-slate-950">Pro</p>
+            <p className="mt-3 text-2xl font-bold text-slate-950">{planName}</p>
           </div>
           <div className="rounded-lg border border-slate-200 p-5">
             <p className="text-sm text-slate-600">Seats</p>
@@ -1611,7 +1632,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
             <p className="text-sm text-slate-600">Paid invoices</p>
             <p className="mt-3 text-2xl font-bold text-emerald-600">{invoices.filter((invoice) => invoice.status === "Paid").length}</p>
           </div>
-          <Button onClick={() => showToast("Plan updated", "Your Pro plan is active.")} variant="outline" className="h-11 justify-start rounded-md border-slate-200 bg-white md:col-span-3">
+          <Button onClick={updatePlan} variant="outline" className="h-11 justify-start rounded-md border-slate-200 bg-white md:col-span-3">
             <CreditCard className="h-4 w-4" />
             Manage subscription
           </Button>
@@ -1796,7 +1817,6 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
               <CardTitle className="text-slate-950">Projects</CardTitle>
               <Button onClick={() => {
                 setShowProjectForm((value) => !value);
-                showToast("Project form toggled", "Project creation controls are ready.");
               }} className="bg-sky-600 text-white hover:bg-sky-700">
                 <Plus className="h-4 w-4" />
                 New Project
@@ -1818,7 +1838,6 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
               <CardTitle className="text-slate-950">Tasks</CardTitle>
               <Button onClick={() => {
                 setShowTaskForm((value) => !value);
-                showToast("Task form toggled", "Task creation controls are ready.");
               }} className="bg-sky-600 text-white hover:bg-sky-700">
                 <Plus className="h-4 w-4" />
                 New Task
@@ -1977,8 +1996,8 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
-              <Button onClick={() => showToast("Notifications checked", "No urgent alerts right now.")} variant="ghost" size="icon" className="rounded-md text-slate-600"><Bell className="h-5 w-5" /></Button>
-              <Button onClick={() => showToast("Messages opened", "Team messages are synced with this workspace.")} variant="ghost" size="icon" className="rounded-md text-slate-600"><MessageSquare className="h-5 w-5" /></Button>
+              <Button onClick={() => selectView("Settings")} variant="ghost" size="icon" className="rounded-md text-slate-600"><Bell className="h-5 w-5" /></Button>
+              <Button onClick={() => selectView("AI Assistant")} variant="ghost" size="icon" className="rounded-md text-slate-600"><MessageSquare className="h-5 w-5" /></Button>
               <div className="flex items-center gap-3 border-l border-slate-200 pl-2 sm:pl-4">
                 <UserAccountControl authEnabled={authEnabled} user={user} size="sm" />
                 <div className="hidden text-sm sm:block">
