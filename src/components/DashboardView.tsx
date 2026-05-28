@@ -49,6 +49,7 @@ import {
   UserPlus,
   Users,
   Users2,
+  X,
   Zap,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -807,6 +808,7 @@ function DashboardAiAssistant({
 function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: DashboardUser }) {
   const [activeView, setActiveView] = useState<ViewKey>("Dashboard");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
@@ -927,6 +929,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     { title: "Team Members", value: String(teamMembers.length), change: `+${teamMembers.filter((member) => member.status === "Invited").length}`, note: "pending invites" },
     { title: "Hours Tracked", value: `${totalHours}h`, change: "+8%", note: "from last month" },
   ];
+  const selectView = (view: ViewKey) => {
+    setActiveView(view);
+    setIsMobileSidebarOpen(false);
+  };
 
   const createProject = (project: Omit<Project, "id" | "progress" | "color" | "icon">) => {
     const colors = ["indigo", "blue", "emerald", "violet", "orange"] as const;
@@ -1033,7 +1039,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     const color = projectColorClasses[project.color as keyof typeof projectColorClasses] || projectColorClasses.indigo;
     const Icon = projectIcons[project.icon];
     return (
-      <div key={project.id} className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-4 py-3">
+      <div key={project.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-3 sm:grid-cols-[auto_1fr_auto_auto_auto] sm:gap-4">
         <div className={`flex h-9 w-9 items-center justify-center rounded-md ${color.bg}`}>
           <Icon className={`h-4 w-4 ${color.text}`} />
         </div>
@@ -1065,7 +1071,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
     const days = daysUntil(task.dueDate);
     const tone = days <= 2 && task.status !== "Completed" ? "text-red-500" : days <= 4 ? "text-orange-500" : "text-slate-500";
     return (
-      <label key={task.id} className="grid cursor-pointer grid-cols-[auto_1fr_auto_auto] items-start gap-3 py-3">
+      <label key={task.id} className="grid cursor-pointer grid-cols-[auto_1fr_auto] items-start gap-3 py-3 md:grid-cols-[auto_1fr_auto_auto]">
         <input type="checkbox" checked={task.status === "Completed"} onChange={() => toggleTask(task.id)} className="mt-1 h-4 w-4 rounded border-slate-300" />
         <span>
           <span className={`block text-sm font-bold leading-5 ${task.status === "Completed" ? "text-slate-400 line-through" : "text-slate-950"}`}>{task.title}</span>
@@ -1143,7 +1149,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         </div>
 
         <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
             <div>
               <CardTitle className="text-slate-950">Invoices</CardTitle>
               <p className="mt-1 text-sm text-slate-500">Create invoices, track balances, and update payment status.</p>
@@ -1198,7 +1204,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         </div>
 
         <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
             <div>
               <CardTitle className="text-slate-950">Team</CardTitle>
               <p className="mt-1 text-sm text-slate-500">Invite teammates by email and manage workspace roles.</p>
@@ -1264,7 +1270,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.25fr_1fr]">
         <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-3">
             <CardTitle className="text-base font-bold text-slate-950">Project Progress</CardTitle>
             <Button variant="outline" size="sm" className="h-8 rounded-md border-slate-200 bg-white text-xs">
               This Month <ChevronDown className="h-3 w-3" />
@@ -1328,9 +1334,9 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.25fr_1fr]">
         <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between pb-0">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-0">
             <CardTitle className="text-base font-bold text-slate-950">Recent Projects</CardTitle>
-            <Button onClick={() => setActiveView("Projects")} variant="link" className="h-auto p-0 text-xs font-bold text-sky-600">View all</Button>
+            <Button onClick={() => selectView("Projects")} variant="link" className="h-auto p-0 text-xs font-bold text-sky-600">View all</Button>
           </CardHeader>
           <CardContent className="pt-4">
             <div className="divide-y divide-slate-100">
@@ -1340,9 +1346,9 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         </Card>
 
         <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between pb-0">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-0">
             <CardTitle className="text-base font-bold text-slate-950">My Tasks</CardTitle>
-            <Button onClick={() => setActiveView("Tasks")} variant="link" className="h-auto p-0 text-xs font-bold text-sky-600">View all</Button>
+            <Button onClick={() => selectView("Tasks")} variant="link" className="h-auto p-0 text-xs font-bold text-sky-600">View all</Button>
           </CardHeader>
           <CardContent className="pt-4">
             <div className="divide-y divide-slate-100">
@@ -1354,7 +1360,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.25fr_1fr]">
         <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-2">
             <CardTitle className="text-base font-bold text-slate-950">Team Workload</CardTitle>
           </CardHeader>
           <CardContent className="pb-6">
@@ -1375,14 +1381,14 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         </Card>
 
         <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between pb-0">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-0">
             <CardTitle className="text-base font-bold text-slate-950">Upcoming Deadlines</CardTitle>
-            <Button onClick={() => setActiveView("Calendar")} variant="link" className="h-auto p-0 text-xs font-bold text-sky-600">View calendar</Button>
+            <Button onClick={() => selectView("Calendar")} variant="link" className="h-auto p-0 text-xs font-bold text-sky-600">View calendar</Button>
           </CardHeader>
           <CardContent className="pt-4">
             <div className="space-y-4">
               {upcomingDeadlines.map((project) => (
-                <div key={project.id} className="grid grid-cols-[44px_auto_1fr_auto] items-center gap-3">
+                <div key={project.id} className="grid grid-cols-[36px_auto_1fr] items-center gap-3 sm:grid-cols-[44px_auto_1fr_auto]">
                   <div className="text-center">
                     <p className="text-[10px] font-bold text-slate-500">{formatDate(project.dueDate).split(" ")[0]}</p>
                     <p className="text-sm font-bold text-slate-950">{formatDate(project.dueDate).split(" ")[1]}</p>
@@ -1394,7 +1400,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
                     <p className="truncate text-sm font-bold text-slate-950">{project.name}</p>
                     <p className="text-xs text-slate-500">{project.client}</p>
                   </div>
-                  <p className="text-xs text-slate-500">{dueLabel(project.dueDate)}</p>
+                  <p className="hidden text-xs text-slate-500 sm:block">{dueLabel(project.dueDate)}</p>
                 </div>
               ))}
             </div>
@@ -1418,7 +1424,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         <div className="space-y-4">
           {showProjectForm && <ProjectForm onCreate={createProject} />}
           <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <CardTitle className="text-slate-950">Projects</CardTitle>
               <Button onClick={() => setShowProjectForm((value) => !value)} className="bg-sky-600 text-white hover:bg-sky-700">
                 <Plus className="h-4 w-4" />
@@ -1437,7 +1443,7 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         <div className="space-y-4">
           {showTaskForm && <TaskForm projects={projects} user={user} onCreate={createTask} />}
           <Card className="rounded-lg border-slate-200 bg-white shadow-none">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <CardTitle className="text-slate-950">Tasks</CardTitle>
               <Button onClick={() => setShowTaskForm((value) => !value)} className="bg-sky-600 text-white hover:bg-sky-700">
                 <Plus className="h-4 w-4" />
@@ -1498,6 +1504,54 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <div className="flex min-h-screen">
+        {isMobileSidebarOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-950/40"
+              aria-label="Close dashboard menu"
+              onClick={() => setIsMobileSidebarOpen(false)}
+            />
+            <aside className="relative flex h-full w-[min(86vw,320px)] flex-col border-r border-slate-200 bg-white shadow-2xl">
+              <div className="flex h-16 items-center justify-between border-b border-slate-100 px-5">
+                <Logo />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-md text-slate-600"
+                  aria-label="Close dashboard menu"
+                  onClick={() => setIsMobileSidebarOpen(false)}
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-6">
+                <nav className="space-y-7">
+                  <SidebarGroup title="Main" items={mainNav} activeView={activeView} onSelect={selectView} />
+                  <SidebarGroup title="Manage" items={manageNav} activeView={activeView} onSelect={selectView} />
+                  <SidebarGroup title="Settings" items={settingsNav} activeView={activeView} onSelect={selectView} />
+                </nav>
+
+                <div className="mt-7 rounded-lg bg-sky-50 p-5">
+                  <h3 className="mb-3 text-sm font-bold text-sky-600">Upgrade to Pro</h3>
+                  <p className="mb-5 text-xs leading-5 text-slate-600">Unlock advanced features, reports, and priority support.</p>
+                  <Button onClick={() => selectView("Billing")} className="h-10 w-full rounded-md bg-sky-600 text-sm font-semibold text-white hover:bg-sky-700">Upgrade Now</Button>
+                </div>
+
+                <div className="mt-7 flex items-center gap-3">
+                  <UserAccountControl authEnabled={authEnabled} user={user} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-slate-950">{user.name}</p>
+                    <p className="truncate text-xs text-slate-500">{user.email || user.role}</p>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        )}
+
         <aside className="hidden w-[270px] shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
           <div className="flex h-16 items-center justify-between border-b border-slate-100 px-7">
             <Logo />
@@ -1506,15 +1560,15 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
 
           <div className="flex flex-1 flex-col px-6 py-7">
             <nav className="space-y-7">
-              <SidebarGroup title="Main" items={mainNav} activeView={activeView} onSelect={setActiveView} />
-              <SidebarGroup title="Manage" items={manageNav} activeView={activeView} onSelect={setActiveView} />
-              <SidebarGroup title="Settings" items={settingsNav} activeView={activeView} onSelect={setActiveView} />
+              <SidebarGroup title="Main" items={mainNav} activeView={activeView} onSelect={selectView} />
+              <SidebarGroup title="Manage" items={manageNav} activeView={activeView} onSelect={selectView} />
+              <SidebarGroup title="Settings" items={settingsNav} activeView={activeView} onSelect={selectView} />
             </nav>
 
             <div className="mt-auto rounded-lg bg-sky-50 p-5">
               <h3 className="mb-3 text-sm font-bold text-sky-600">Upgrade to Pro</h3>
               <p className="mb-5 text-xs leading-5 text-slate-600">Unlock advanced features, reports, and priority support.</p>
-              <Button onClick={() => setActiveView("Billing")} className="h-10 w-full rounded-md bg-sky-600 text-sm font-semibold text-white hover:bg-sky-700">Upgrade Now</Button>
+              <Button onClick={() => selectView("Billing")} className="h-10 w-full rounded-md bg-sky-600 text-sm font-semibold text-white hover:bg-sky-700">Upgrade Now</Button>
             </div>
 
             <div className="mt-7 flex items-center gap-3">
@@ -1528,9 +1582,17 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
         </aside>
 
         <main className="min-w-0 flex-1 bg-slate-50">
-          <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-5 lg:px-8">
-            <div className="flex items-center gap-5">
-              <Button variant="ghost" size="icon" className="rounded-md text-slate-600 lg:hidden">
+          <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:flex-nowrap sm:px-5 lg:px-8">
+            <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="rounded-md text-slate-600 lg:hidden"
+                aria-label="Open dashboard menu"
+                aria-expanded={isMobileSidebarOpen}
+                onClick={() => setIsMobileSidebarOpen(true)}
+              >
                 <Menu className="h-5 w-5" />
               </Button>
               <div className="relative hidden w-[420px] sm:block">
@@ -1539,10 +1601,10 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
               <Button variant="ghost" size="icon" className="rounded-md text-slate-600"><Bell className="h-5 w-5" /></Button>
               <Button variant="ghost" size="icon" className="rounded-md text-slate-600"><MessageSquare className="h-5 w-5" /></Button>
-              <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
+              <div className="flex items-center gap-3 border-l border-slate-200 pl-2 sm:pl-4">
                 <UserAccountControl authEnabled={authEnabled} user={user} size="sm" />
                 <div className="hidden text-sm sm:block">
                   <p className="font-bold leading-4 text-slate-950">{user.name}</p>
@@ -1550,9 +1612,13 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
                 </div>
               </div>
             </div>
+            <div className="relative w-full sm:hidden">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search workspace..." className="h-10 rounded-md border-slate-200 bg-white pl-10 text-sm shadow-none" />
+            </div>
           </header>
 
-          <div className="mx-auto max-w-[1180px] px-5 py-7 lg:px-8">
+          <div className="mx-auto max-w-[1180px] px-4 py-5 sm:px-5 sm:py-7 lg:px-8">
             <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h1 className="font-heading text-2xl font-bold tracking-tight text-slate-950">{activeView}</h1>
@@ -1565,9 +1631,9 @@ function DashboardContent({ authEnabled, user }: { authEnabled: boolean; user: D
                   {dashboardError || (isLoadingDashboard ? "Loading dashboard data from database..." : isSavingDashboard ? "Saving dashboard data..." : "Database connected")}
                 </p>
               </div>
-              <div className="flex gap-3">
-                <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-4 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950">May 1 - Jun 30, 2026 <ChevronDown className="h-4 w-4" /></Button>
-                <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-4 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950"><Upload className="h-4 w-4" />Export</Button>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="outline" className="h-10 flex-1 rounded-md border-slate-200 bg-white px-3 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950 sm:flex-none sm:px-4">May 1 - Jun 30, 2026 <ChevronDown className="h-4 w-4" /></Button>
+                <Button variant="outline" className="h-10 rounded-md border-slate-200 bg-white px-3 text-sm font-semibold text-field-foreground hover:bg-slate-50 hover:text-slate-950 sm:px-4"><Upload className="h-4 w-4" />Export</Button>
                 <Button
                   onClick={() => {
                     if (activeView === "Tasks") {
